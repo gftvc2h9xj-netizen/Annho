@@ -1,85 +1,167 @@
-# 🎮 数字猜谜游戏 (Number Guessing Game)
+# AI宿舍健康管理系统
 
-一个简单有趣的Python小游戏，考验你的猜数字技能！
+🏥 一个基于AI的智能宿舍健康管理平台，提供实时健康监测、数据分析和个性化健康建议。
 
-## 📋 游戏规则
+## 🌟 核心功能
 
-1. 计算机会随机生成一个1-100之间的数字
-2. 你有10次机会来猜测这个数字
-3. 每次猜测后，游戏会告诉你：
-   - 如果你的猜测太高或太低
-   - 还剩多少次机会
-4. 猜对就赢了！如果用完10次机会还没猜对，游戏结束
+- **📊 实时健康监测**：步数、心率、睡眠、体温、血压等数据采集
+- **🤖 AI智能分析**：基于机器学习模型的健康趋势分析
+- **💡 个性化建议**：根据用户数据生成定制化健康建议
+- **👥 多人宿舍管理**：支持同一宿舍多个用户的数据管理
+- **🔔 健康预警**：异常数据自动告警提醒
+- **📈 可视化仪表板**：直观展示健康数据和趋势
+- **🏆 健康挑戰**：鼓励用户参与健康竞赛
+- **🔐 隐私保护**：端到端加密和数据安全
 
-## 🚀 如何运行
+## 🚀 快速开始
 
-### 前置要求
-- Python 3.6+
-
-### 安装和运行
+### 使用Docker Compose（推荐）
 
 ```bash
-# 克隆仓库
+# 克隆项目
 git clone https://github.com/gftvc2h9xj-netizen/Annho.git
 cd Annho
 
-# 运行游戏
-python game.py
+# 启动所有服务
+docker-compose up -d
+
+# 查看日志
+docker-compose logs -f
 ```
 
-## 🎯 游戏演示
+### 访问应用
 
-```
-欢迎来到数字猜谜游戏！🎮
-我已经想到了一个1-100之间的数字。
-你有10次机会来猜测它！
+- **前端**: http://localhost:3000
+- **后端API**: http://localhost:8000
+- **API文档**: http://localhost:8000/docs
+- **数据库**: postgresql://dorm_user:dorm_password@localhost:5432/dorm_health
 
-请输入你的猜测 (1-100): 50
-你的猜测太高了！
-还剩 9 次机会
-
-请输入你的猜测 (1-100): 25
-你的猜测太低了！
-还剩 8 次机会
-
-请输入你的猜测 (1-100): 37
-恭喜你！你猜对了！🎉
-你用了 3 次机会！
-```
-
-## 📁 项目结构
+## 🏗️ 项目架构
 
 ```
 Annho/
-├── README.md          # 项目说明文档
-├── game.py            # 主游戏程序
-└── requirements.txt   # 依赖包列表（本项目无依赖）
+├── backend/              # FastAPI后端
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── core/
+│   │   ├── models/
+│   │   ├── schemas/
+│   │   ├── api/
+│   │   ├── services/
+│   └── utils/
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   └── .env.example
+├── frontend/             # React前端
+│   ├── public/
+│   ├── src/
+│   ├── package.json
+│   └── Dockerfile
+├── database/             # 数据库初始化
+├── docker-compose.yml    # Docker编排
+└── docs/                 # 文档
 ```
 
-## 🎨 功能特性
+## 🛠️ 技术栈
 
-✨ 简单易上手  
-✨ 实时反馈  
-✨ 机会计数  
-✨ 游戏统计  
-✨ 可重复游玩  
+- **后端**: FastAPI + SQLAlchemy + PostgreSQL
+- **前端**: React + TailwindCSS
+- **缓存**: Redis
+- **容器**: Docker & Docker Compose
+- **AI/ML**: scikit-learn, NumPy, Pandas
 
-## 💡 可能的改进
+## 📡 API端点
 
-- [ ] 添加难度等级选择（简单/中等/困难）
-- [ ] 添加游戏记录和排行榜
-- [ ] 支持多轮游戏
-- [ ] 添加音效（如果想要GUI版本）
-- [ ] 创建图形用户界面（GUI）版本
+### 认证
+- `POST /api/v1/auth/register` - 用户注册
+- `POST /api/v1/auth/login` - 用户登录
+- `POST /api/v1/auth/logout` - 用户登出
 
-## 📜 许可证
+### 健康数据
+- `POST /api/v1/health/metrics` - 上传健康数���
+- `GET /api/v1/health/metrics` - 获取健康数据
+- `GET /api/v1/health/analysis` - AI健康分析
+- `GET /api/v1/health/recommendations` - 健康建议
+
+## 📚 文档
+
+- [API文档](docs/API.md)
+- [设置指南](docs/SETUP.md)
+
+## 🔧 本地开发
+
+### 后端开发
+
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+uvicorn app.main:app --reload
+```
+
+### 前端开发
+
+```bash
+cd frontend
+npm install
+npm start
+```
+
+## 🧪 测试
+
+```bash
+# 后端测试
+cd backend && pytest
+
+# 前端测试
+cd frontend && npm test
+```
+
+## 📝 环境配置
+
+复制 `backend/.env.example` 为 `.env` 并修改配置：
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+## 🚦 停止服务
+
+```bash
+# 停止所有容器
+docker-compose stop
+
+# 删除所有容器
+docker-compose down
+
+# 删除容器和数据卷
+docker-compose down -v
+```
+
+## 🐛 常见问题
+
+### 端口被占用
+修改 `docker-compose.yml` 中的端口映射。
+
+### 数据库连接失败
+检查 PostgreSQL 容器是否运行：
+```bash
+docker-compose logs db
+```
+
+### 前端无法连接后端
+检查 `REACT_APP_API_URL` 环境变量。
+
+## 📄 许可证
 
 MIT License
 
-## 👨‍💻 作者
+## 👥 贡献
 
-gftvc2h9xj-netizen
+欢迎提交Issue和Pull Request！
 
----
+## 📧 联系方式
 
-**玩得开心！🎮**
+- 📧 Email: support@dorm-health.com
+- 🐛 Issues: [GitHub Issues](https://github.com/gftvc2h9xj-netizen/Annho/issues)
