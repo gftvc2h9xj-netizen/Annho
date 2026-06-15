@@ -1,0 +1,4 @@
+# 本项目不依赖任何外部包
+# This project has no external dependencies
+# 仅需要 Python 3.6+ 标准库
+# Only requires Python 3.6+ standard library
