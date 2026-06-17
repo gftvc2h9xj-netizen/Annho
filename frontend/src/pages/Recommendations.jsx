@@ -16,6 +16,12 @@ function Recommendations() {
     }
   ];
 
+  const priorityMap = {
+    normal: '普通',
+    high: '紧急',
+    low: '低'
+  };
+
   return (
     <div className="page-container">
       <h2>💡 个性化健康建议</h2>
@@ -24,7 +30,7 @@ function Recommendations() {
           <div key={rec.id} className="recommendation-card">
             <h3>{rec.title}</h3>
             <p>{rec.description}</p>
-            <span className="priority-badge">{rec.priority}</span>
+            <span className="priority-badge">{priorityMap[rec.priority] || rec.priority}</span>
           </div>
         ))}
       </div>
