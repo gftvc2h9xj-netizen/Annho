@@ -11,6 +11,11 @@ const HF_MODEL = process.env.HF_MODEL || 'facebook/blenderbot-400M-distill';
 const OPENAI_KEY = process.env.OPENAI_API_KEY;
 const JWT_SECRET = process.env.JWT_SECRET || 'please-change-this';
 
+// Feature flags controlled by environment variables
+const useRateLimiter = process.env.ENABLE_RATE_LIMITER === 'true' || process.env.ENABLE_RATE_LIMITER === undefined;
+const useContentFilter = process.env.ENABLE_CONTENT_FILTER === 'true' || process.env.ENABLE_CONTENT_FILTER === undefined;
+const useSessionHistory = process.env.ENABLE_SESSION_HISTORY !== 'false'; // default true
+
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth) return res.status(401).json({ message: '未授权' });
@@ -22,6 +27,14 @@ function authMiddleware(req, res, next) {
   } catch (e) {
     return res.status(401).json({ message: '无效的 token' });
   }
+}
+
+// Helper to build middleware chain based on flags
+function buildMiddlewares(...base) {
+  const mws = [...base];
+  if (useRateLimiter) mws.push(rateLimiter);
+  if (useContentFilter) mws.push(contentFilter);
+  return mws;
 }
 
 async function summarizeMessagesIfNeeded(sessionId) {
@@ -71,7 +84,9 @@ async function summarizeMessagesIfNeeded(sessionId) {
 }
 
 // Create a new chat session
-router.post('/sessions', authMiddleware, rateLimiter, contentFilter, async (req, res) => {
+// If session history is disabled, this endpoint will return an error indicating sessions are disabled
+router.post('/sessions', ...buildMiddlewares(authMiddleware), async (req, res) => {
+  if (!useSessionHistory) return res.status(400).json({ message: '会话历史功能已被禁用' });
   const { title } = req.body;
   try {
     const result = await db.query(
@@ -86,7 +101,8 @@ router.post('/sessions', authMiddleware, rateLimiter, contentFilter, async (req,
 });
 
 // List sessions for user
-router.get('/sessions', authMiddleware, rateLimiter, async (req, res) => {
+router.get('/sessions', ...buildMiddlewares(authMiddleware), async (req, res) => {
+  if (!useSessionHistory) return res.status(400).json({ message: '会话历史功能已被禁用' });
   try {
     const result = await db.query('SELECT id, title, created_at, summary FROM ai_sessions WHERE user_id=$1 ORDER BY created_at DESC', [req.userId]);
     res.json(result.rows);
@@ -97,7 +113,8 @@ router.get('/sessions', authMiddleware, rateLimiter, async (req, res) => {
 });
 
 // Get messages for a session
-router.get('/sessions/:id/messages', authMiddleware, rateLimiter, async (req, res) => {
+router.get('/sessions/:id/messages', ...buildMiddlewares(authMiddleware), async (req, res) => {
+  if (!useSessionHistory) return res.status(400).json({ message: '会话历史功能已被禁用' });
   const sessionId = req.params.id;
   try {
     const result = await db.query('SELECT * FROM ai_messages WHERE session_id=$1 ORDER BY created_at ASC', [sessionId]);
@@ -109,81 +126,119 @@ router.get('/sessions/:id/messages', authMiddleware, rateLimiter, async (req, re
 });
 
 // POST /api/ai/chat { question: '...', session_id?: n }
-router.post('/chat', authMiddleware, rateLimiter, contentFilter, async (req, res) => {
+// If session history disabled, this will perform a one-off AI call and not save any messages
+router.post('/chat', ...buildMiddlewares(authMiddleware), async (req, res) => {
   const { question, session_id } = req.body;
   if (!question) return res.status(400).json({ message: '问题不能为空' });
 
   let sessionId = session_id;
 
   try {
-    // If no session provided, create one
-    if (!sessionId) {
-      const createRes = await db.query('INSERT INTO ai_sessions (user_id, title) VALUES ($1, $2) RETURNING *', [req.userId, null]);
-      sessionId = createRes.rows[0].id;
-    }
-
-    // Content filtering done by middleware
-
-    // Save user message
-    await db.query('INSERT INTO ai_messages (session_id, user_id, role, content) VALUES ($1, $2, $3, $4)', [sessionId, req.userId, 'user', question]);
-
-    // Optionally summarize older messages to keep context small
-    await summarizeMessagesIfNeeded(sessionId);
-
-    // Build input for AI: include session summary (if exists) + last few messages
-    const sessionRow = await db.query('SELECT summary FROM ai_sessions WHERE id=$1', [sessionId]);
-    const sessionSummary = sessionRow.rows[0]?.summary || '';
-
-    const msgsRes = await db.query('SELECT role, content FROM ai_messages WHERE session_id=$1 ORDER BY created_at ASC', [sessionId]);
-    const msgs = msgsRes.rows || [];
-    // include last 6 messages for context
-    const recent = msgs.slice(-6).map(m => `${m.role === 'user' ? '用户' : 'AI'}: ${m.content}`).join('\n');
-
-    let prompt = '';
-    if (sessionSummary) prompt += `历史摘要：${sessionSummary}\n\n`;
-    prompt += `最近对话（供参考）：\n${recent}\n\n用户问题：${question}`;
-
-    // Call AI provider
-    let answer = '';
-
-    if (HF_API_KEY) {
-      const hfUrl = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
-      const hfResponse = await axios.post(hfUrl, { inputs: prompt }, {
-        headers: { Authorization: `Bearer ${HF_API_KEY}` },
-        timeout: 120000
-      });
-      const data = hfResponse.data;
-      if (Array.isArray(data) && data[0].generated_text) {
-        answer = data[0].generated_text;
-      } else if (typeof data === 'string') {
-        answer = data;
-      } else if (Array.isArray(data) && data[0].body) {
-        answer = data[0].body;
-      } else if (data.generated_text) {
-        answer = data.generated_text;
-      } else {
-        answer = JSON.stringify(data);
+    if (useSessionHistory) {
+      // If no session provided, create one
+      if (!sessionId) {
+        const createRes = await db.query('INSERT INTO ai_sessions (user_id, title) VALUES ($1, $2) RETURNING *', [req.userId, null]);
+        sessionId = createRes.rows[0].id;
       }
-    } else if (OPENAI_KEY) {
-      const openaiResp = await axios.post('https://api.openai.com/v1/chat/completions', {
-        model: 'gpt-3.5-turbo',
-        messages: [
-          { role: 'system', content: '你是一个友好的中文健康顾问，回答需简洁并给出建议。' },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 500
-      }, {
-        headers: { Authorization: `Bearer ${OPENAI_KEY}` }
-      });
-      answer = openaiResp.data.choices[0].message.content;
+
+      // Save user message
+      await db.query('INSERT INTO ai_messages (session_id, user_id, role, content) VALUES ($1, $2, $3, $4)', [sessionId, req.userId, 'user', question]);
+
+      // Optionally summarize older messages to keep context small
+      await summarizeMessagesIfNeeded(sessionId);
+
+      // Build input for AI: include session summary (if exists) + last few messages
+      const sessionRow = await db.query('SELECT summary FROM ai_sessions WHERE id=$1', [sessionId]);
+      const sessionSummary = sessionRow.rows[0]?.summary || '';
+
+      const msgsRes = await db.query('SELECT role, content FROM ai_messages WHERE session_id=$1 ORDER BY created_at ASC', [sessionId]);
+      const msgs = msgsRes.rows || [];
+      // include last 6 messages for context
+      const recent = msgs.slice(-6).map(m => `${m.role === 'user' ? '用户' : 'AI'}: ${m.content}`).join('\n');
+
+      let prompt = '';
+      if (sessionSummary) prompt += `历史摘要：${sessionSummary}\n\n`;
+      prompt += `最近对话（供参考）：\n${recent}\n\n用户问题：${question}`;
+
+      // Call AI provider
+      let answer = '';
+
+      if (HF_API_KEY) {
+        const hfUrl = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
+        const hfResponse = await axios.post(hfUrl, { inputs: prompt }, {
+          headers: { Authorization: `Bearer ${HF_API_KEY}` },
+          timeout: 120000
+        });
+        const data = hfResponse.data;
+        if (Array.isArray(data) && data[0].generated_text) {
+          answer = data[0].generated_text;
+        } else if (typeof data === 'string') {
+          answer = data;
+        } else if (Array.isArray(data) && data[0].body) {
+          answer = data[0].body;
+        } else if (data.generated_text) {
+          answer = data.generated_text;
+        } else {
+          answer = JSON.stringify(data);
+        }
+      } else if (OPENAI_KEY) {
+        const openaiResp = await axios.post('https://api.openai.com/v1/chat/completions', {
+          model: 'gpt-3.5-turbo',
+          messages: [
+            { role: 'system', content: '你是一个友好的中文健康顾问，回答需简洁并给出建议。' },
+            { role: 'user', content: prompt }
+          ],
+          max_tokens: 500
+        }, {
+          headers: { Authorization: `Bearer ${OPENAI_KEY}` }
+        });
+        answer = openaiResp.data.choices[0].message.content;
+      } else {
+        return res.status(400).json({ message: '未配置任何 AI API Key（HF_API_KEY 或 OPENAI_API_KEY）' });
+      }
+
+      // Save assistant message
+      await db.query('INSERT INTO ai_messages (session_id, user_id, role, content) VALUES ($1, $2, $3, $4)', [sessionId, req.userId, 'assistant', answer]);
+
+      res.json({ answer, session_id: sessionId });
     } else {
-      return res.status(400).json({ message: '未配置任何 AI API Key（HF_API_KEY 或 OPENAI_API_KEY）' });
+      // Session history disabled: do a one-off AI call without saving anything
+      let answer = '';
+      const prompt = question; // only the question
+
+      if (HF_API_KEY) {
+        const hfUrl = `https://api-inference.huggingface.co/models/${HF_MODEL}`;
+        const hfResponse = await axios.post(hfUrl, { inputs: prompt }, {
+          headers: { Authorization: `Bearer ${HF_API_KEY}` },
+          timeout: 120000
+        });
+        const data = hfResponse.data;
+        if (Array.isArray(data) && data[0].generated_text) {
+          answer = data[0].generated_text;
+        } else if (typeof data === 'string') {
+          answer = data;
+        } else if (Array.isArray(data) && data[0].body) {
+          answer = data[0].body;
+        } else if (data.generated_text) {
+          answer = data.generated_text;
+        } else {
+          answer = JSON.stringify(data);
+        }
+      } else if (OPENAI_KEY) {
+        const openaiResp = await axios.post('https://api.openai.com/v1/chat/completions', {
+          model: 'gpt-3.5-turbo',
+          messages: [ { role: 'user', content: prompt } ],
+          max_tokens: 500
+        }, {
+          headers: { Authorization: `Bearer ${OPENAI_KEY}` }
+        });
+        answer = openaiResp.data.choices[0].message.content;
+      } else {
+        return res.status(400).json({ message: '未配置任何 AI API Key（HF_API_KEY 或 OPENAI_API_KEY）' });
+      }
+
+      res.json({ answer });
     }
-
-    // Save assistant message
-    await db.query('INSERT INTO ai_messages (session_id, user_id, role, content) VALUES ($1, $2, $3, $4)', [sessionId, req.userId, 'assistant', answer]);
-
-    res.json({ answer, session_id: sessionId });
   } catch (err) {
     console.error('AI 调用或保存错误', err?.response?.data || err.message);
     res.status(500).json({ message: 'AI 服务调用失败', error: err?.response?.data || err.message });
