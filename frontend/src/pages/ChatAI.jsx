@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import api from '../services/api';
 import ChatBubble from '../components/ChatBubble';
 import SessionList from '../components/SessionList';
-import './chat.css';
+import '../chat.css';
 
 function ChatAI() {
   const [sessions, setSessions] = useState([]);

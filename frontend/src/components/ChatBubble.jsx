@@ -1,5 +1,5 @@
 import React from 'react';
-import './chat.css';
+import '../chat.css';
 
 function ChatBubble({ message }) {
   const isUser = message.role === 'user';
