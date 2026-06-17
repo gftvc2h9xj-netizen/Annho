@@ -1,7 +1,7 @@
 {
   "name": "ai-dorm-health-frontend",
   "version": "1.0.0",
-  "description": "AI Dorm Health System Frontend",
+  "description": "AI宿舍健康系统 前端",
   "private": true,
   "dependencies": {
     "react": "^18.2.0",
