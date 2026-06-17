@@ -1,5 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import api from '../services/api';
+import ChatBubble from '../components/ChatBubble';
+import SessionList from '../components/SessionList';
+import './chat.css';
 
 function ChatAI() {
   const [sessions, setSessions] = useState([]);
@@ -9,14 +12,25 @@ function ChatAI() {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newTitle, setNewTitle] = useState('');
+  const messagesRef = useRef(null);
+  const typingRef = useRef(false);
 
   useEffect(() => {
     fetchSessions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (currentSession) fetchMessages(currentSession.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentSession]);
+
+  useEffect(() => {
+    // auto-scroll when messages change
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
+    }
+  }, [messages]);
 
   const fetchSessions = async () => {
     try {
@@ -25,7 +39,8 @@ function ChatAI() {
       if (!currentSession && res.data.length > 0) setCurrentSession(res.data[0]);
     } catch (err) {
       console.error(err);
-      alert('获取会话失败');
+      // If sessions disabled, fall back to no-sessions mode
+      setSessions([]);
     }
   };
 
@@ -35,7 +50,7 @@ function ChatAI() {
       setMessages(res.data);
     } catch (err) {
       console.error(err);
-      alert('获取消息失败');
+      setMessages([]);
     }
   };
 
@@ -43,74 +58,97 @@ function ChatAI() {
     setCreating(true);
     try {
       const res = await api.post('/ai/sessions', { title: newTitle || null });
-      setSessions(prev => [res.data, ...prev]);
+      setSessions((prev) => [res.data, ...prev]);
       setCurrentSession(res.data);
       setNewTitle('');
     } catch (err) {
       console.error(err);
-      alert('创建会话失败');
+      alert(err.response?.data?.message || '创建会话失败');
     } finally {
       setCreating(false);
     }
   };
 
   const ask = async (e) => {
-    e.preventDefault();
-    if (!question) return;
+    if (e) e.preventDefault();
+    if (!question.trim()) return;
     setLoading(true);
+    typingRef.current = true;
+
     try {
       const payload = { question };
       if (currentSession) payload.session_id = currentSession.id;
       const res = await api.post('/ai/chat', payload);
-      const { answer, session_id } = res.data;
-      // refresh messages
-      await fetchMessages(session_id);
+
+      if (res.data.session_id) {
+        await fetchMessages(res.data.session_id);
+      } else if (res.data.answer) {
+        // one-off mode: show answer without session
+        setMessages([{ id: Date.now(), role: 'user', content: question, created_at: new Date().toISOString() }, { id: Date.now()+1, role: 'assistant', content: res.data.answer, created_at: new Date().toISOString() }]);
+      }
+
       setQuestion('');
     } catch (err) {
       console.error(err);
-      alert('调用 AI 服务失败');
+      alert(err.response?.data?.message || '调用 AI 服务失败');
     } finally {
       setLoading(false);
+      typingRef.current = false;
+    }
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      ask();
     }
   };
 
   return (
-    <div className="page-container" style={{ display: 'flex', gap: 20 }}>
-      <div style={{ width: 260 }}>
-        <h3>会话列表</h3>
-        <div style={{ marginBottom: 10 }}>
-          <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="新会话标题（可选）" />
-          <button className="btn btn-primary" onClick={createSession} disabled={creating} style={{ marginLeft: 8 }}>{creating ? '创建中...' : '新建'}</button>
-        </div>
-        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-          {sessions.map(s => (
-            <div key={s.id} onClick={() => setCurrentSession(s)} style={{ padding: 8, border: currentSession?.id === s.id ? '2px solid var(--primary-color)' : '1px solid #ddd', borderRadius: 6, marginBottom: 8, cursor: 'pointer' }}>
-              <div style={{ fontWeight: 'bold' }}>{s.title || `会话 ${s.id}`}</div>
-              <div style={{ fontSize: 12, color: '#666' }}>{new Date(s.created_at).toLocaleString()}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div style={{ flex: 1 }}>
-        <h3>对话窗口 {currentSession ? `- ${currentSession.title || `会话 ${currentSession.id}`}` : ''}</h3>
-        <div style={{ height: '60vh', overflowY: 'auto', border: '1px solid #eee', padding: 12, borderRadius: 8, background: '#fafafa' }}>
-          {messages.length === 0 && <div style={{ color: '#888' }}>暂无消息，开始提问吧。</div>}
-          {messages.map(m => (
-            <div key={m.id} style={{ marginBottom: 12 }}>
-              <div style={{ fontSize: 12, color: '#666' }}>{m.role === 'user' ? '你' : 'AI'} · {new Date(m.created_at).toLocaleString()}</div>
-              <div style={{ padding: 10, background: m.role === 'user' ? '#fff' : 'var(--primary-color)', color: m.role === 'user' ? '#000' : '#fff', borderRadius: 6, marginTop: 6 }}>{m.content}</div>
-            </div>
-          ))}
+    <div className="page-container chat-page">
+      <div className="chat-container">
+        <div className="left-panel">
+          <SessionList
+            sessions={sessions}
+            currentSession={currentSession}
+            onSelect={(s) => setCurrentSession(s)}
+            newTitle={newTitle}
+            setNewTitle={setNewTitle}
+            createSession={createSession}
+            creating={creating}
+          />
         </div>
 
-        <form onSubmit={ask} style={{ marginTop: 12 }}>
-          <div className="form-group">
-            <label>请输入你的问题（中文）</label>
-            <textarea value={question} onChange={e => setQuestion(e.target.value)} rows={4} />
+        <div className="right-panel">
+          <div className="chat-header">
+            <h3>{currentSession ? (currentSession.title || `会话 ${currentSession.id}`) : 'AI 问答'}</h3>
+            <div className="chat-subtitle">{currentSession?.summary || (currentSession ? new Date(currentSession.created_at).toLocaleString() : '')}</div>
           </div>
-          <button className="btn btn-primary" type="submit" disabled={loading}>{loading ? '正在请求...' : '提问'}</button>
-        </form>
+
+          <div className="chat-messages" ref={messagesRef}>
+            {messages.length === 0 && <div className="muted">暂无消息，开始提问吧。</div>}
+            {messages.map((m) => (
+              <ChatBubble key={m.id} message={m} />
+            ))}
+            {loading && (
+              <div className="typing-indicator">AI 正在回复...</div>
+            )}
+          </div>
+
+          <form className="chat-input" onSubmit={ask}>
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="在此输入你的问题，按 Enter 发送，Shift+Enter 换行"
+              rows={3}
+            />
+            <div className="chat-actions">
+              <button className="btn btn-secondary" type="button" onClick={() => setQuestion('')}>清空</button>
+              <button className="btn btn-primary" type="submit" disabled={loading}>{loading ? '正在请求...' : '提问'}</button>
+            </div>
+          </form>
+        </div>
       </div>
     </div>
   );
