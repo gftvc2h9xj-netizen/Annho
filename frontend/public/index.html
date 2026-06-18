@@ -9,6 +9,12 @@
 </head>
 <body>
     <noscript>您需要启用 JavaScript 来运行此应用。</noscript>
+    <!-- Runtime API base override to ensure front-end points to backend on localhost:4000 by default -->
+    <script>
+      // This overrides any build-time env if present in the browser environment.
+      // You can change this value when deploying to production by injecting a different script or setting REACT_APP_API_URL at build time.
+      window.__APP_API_URL = window.__APP_API_URL || 'http://localhost:4000';
+    </script>
     <div id="root"></div>
 </body>
 </html>
